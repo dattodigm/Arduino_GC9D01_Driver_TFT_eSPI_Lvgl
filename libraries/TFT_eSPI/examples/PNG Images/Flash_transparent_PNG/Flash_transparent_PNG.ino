@@ -2,10 +2,6 @@
 // This example renders a png file that is stored in a FLASH array
 // using the PNGdec library (available via library manager).
 
-// Note: The PNGDEC required lots of RAM to work (~40kbytes) so
-// this sketch is will not run on smaller memory processors (e.g.
-// ESP8266, STM32F103 etc.)
-
 // The example png is encoded as ARGB 8 bits per pixel with indexed colour
 // It was created using GIMP and has a transparent background area.
 
@@ -28,7 +24,7 @@
 
 PNG png; // PNG decoder instance
 
-#define MAX_IMAGE_WIDTH 240 // Sets rendering line buffer lengths, adjust for your images
+#define MAX_IMAGE_WDITH 240 // Sets rendering line buffer lengths, adjust for your images
 
 // Include the TFT library - see https://github.com/Bodmer/TFT_eSPI for library information
 #include "SPI.h"
@@ -64,7 +60,7 @@ void loop()
   int16_t rc = png.openFLASH((uint8_t *)bob, sizeof(bob), pngDraw);
 
   if (rc == PNG_SUCCESS) {
-    Serial.println("Successfully opened png file");
+    Serial.println("Successfully png file");
     pngw = png.getWidth();
     pngh = png.getHeight();
     Serial.printf("Image metrics: (%d x %d), %d bpp, pixel type: %d\n", pngw, pngh, png.getBpp(), png.getPixelType());

@@ -1,7 +1,7 @@
 
 // This is the command sequence that rotates the ST7735 driver coordinate frame
 
-  rotation = m % 4; // Limit the range of values to 0-3
+  rotation = m % 5; // Limit the range of values to 0-3
 
   writecommand(TFT_MADCTL);
   switch (rotation) {
@@ -128,5 +128,10 @@
      }
       _width  = _init_height;
       _height = _init_width;
+      break;
+     case 4:
+       	writedata(0x42);  // 设置镜像旋转
+        _width  = _init_width;
+      	_height = _init_height;
       break;
   }

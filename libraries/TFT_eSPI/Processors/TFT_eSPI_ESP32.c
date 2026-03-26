@@ -41,11 +41,11 @@
     #endif
   #else
     #ifdef USE_HSPI_PORT
-      #define DMA_CHANNEL SPI_DMA_CH_AUTO
-      spi_host_device_t spi_host = (spi_host_device_t) SPI3_HOST; // Draws once then freezes
+      #define DMA_CHANNEL 2
+      spi_host_device_t spi_host = (spi_host_device_t) DMA_CHANNEL; // Draws once then freezes
     #else // use FSPI port
-      #define DMA_CHANNEL SPI_DMA_CH_AUTO
-      spi_host_device_t spi_host = (spi_host_device_t) SPI2_HOST; // Draws once then freezes
+      #define DMA_CHANNEL 1
+      spi_host_device_t spi_host = (spi_host_device_t) DMA_CHANNEL; // Draws once then freezes
     #endif
   #endif
 #endif
@@ -64,35 +64,29 @@
 ////////////////////////////////////////////////////////////////////////////////////////
 
 /***************************************************************************************
-** Function name:           beginSDA - VSPI port only, FPSI port only for S2
-** Description:             Detach MOSI and attach MISO to SDA for reads
+** Function name:           beginSDA
+** Description:             Detach SPI from pin to permit software SPI
 ***************************************************************************************/
 void TFT_eSPI::begin_SDA_Read(void)
 {
-  gpio_set_direction((gpio_num_t)TFT_MOSI, GPIO_MODE_INPUT);
-  #ifdef CONFIG_IDF_TARGET_ESP32
-    pinMatrixInAttach(TFT_MOSI, VSPIQ_IN_IDX, false);
-  #else // S2
-    pinMatrixInAttach(TFT_MOSI, FSPIQ_IN_IDX, false);
-  #endif
+  pinMatrixOutDetach(TFT_MOSI, false, false);
+  pinMode(TFT_MOSI, INPUT);
+  pinMatrixInAttach(TFT_MOSI, VSPIQ_IN_IDX, false);
   SET_BUS_READ_MODE;
 }
 
 /***************************************************************************************
-** Function name:           endSDA - VSPI port only, FPSI port only for S2
-** Description:             Attach MOSI to SDA and detach MISO for writes
+** Function name:           endSDA
+** Description:             Attach SPI pins after software SPI
 ***************************************************************************************/
 void TFT_eSPI::end_SDA_Read(void)
 {
-  gpio_set_direction((gpio_num_t)TFT_MOSI, GPIO_MODE_OUTPUT);
-  #ifdef CONFIG_IDF_TARGET_ESP32
-    pinMatrixOutAttach(TFT_MOSI, VSPID_OUT_IDX, false, false);
-  #else // S2
-    pinMatrixOutAttach(TFT_MOSI, FSPID_OUT_IDX, false, false);
-  #endif
+  pinMode(TFT_MOSI, OUTPUT);
+  pinMatrixOutAttach(TFT_MOSI, VSPID_OUT_IDX, false, false);
+  pinMode(TFT_MISO, INPUT);
+  pinMatrixInAttach(TFT_MISO, VSPIQ_IN_IDX, false);
   SET_BUS_WRITE_MODE;
 }
-
 ////////////////////////////////////////////////////////////////////////////////////////
 #endif // #if defined (TFT_SDA_READ)
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -100,7 +94,7 @@ void TFT_eSPI::end_SDA_Read(void)
 
 /***************************************************************************************
 ** Function name:           read byte  - supports class functions
-** Description:             Read a byte from ESP32 8-bit data port
+** Description:             Read a byte from ESP32 8 bit data port
 ***************************************************************************************/
 // Parallel bus MUST be set to input before calling this function!
 uint8_t TFT_eSPI::readByte(void)
@@ -415,7 +409,7 @@ void TFT_eSPI::pushPixels(const void* data_in, uint32_t len){
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
-#elif defined (SPI_18BIT_DRIVER) // SPI 18-bit colour
+#elif defined (SPI_18BIT_DRIVER) // SPI 18 bit colour
 ////////////////////////////////////////////////////////////////////////////////////////
 
 /***************************************************************************************
@@ -428,7 +422,7 @@ void TFT_eSPI::pushBlock(uint16_t color, uint32_t len)
   uint32_t r = (color & 0xF800)>>8;
   uint32_t g = (color & 0x07E0)<<5;
   uint32_t b = (color & 0x001F)<<19;
-  // Concatenate 4 pixels into three 32-bit blocks
+  // Concatenate 4 pixels into three 32 bit blocks
   uint32_t r0 = r<<24 | b | g | r;
   uint32_t r1 = r0>>8 | g<<16;
   uint32_t r2 = r1>>8 | b<<8;
@@ -512,7 +506,7 @@ void TFT_eSPI::pushSwapBytePixels(const void* data_in, uint32_t len){
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
-#elif defined (TFT_PARALLEL_8_BIT) // Now the code for ESP32 8-bit parallel
+#elif defined (TFT_PARALLEL_8_BIT) // Now the code for ESP32 8 bit parallel
 ////////////////////////////////////////////////////////////////////////////////////////
 
 /***************************************************************************************
@@ -768,17 +762,6 @@ void IRAM_ATTR dc_callback(spi_transaction_t *spi_tx)
 }
 
 /***************************************************************************************
-** Function name:           dma_end_callback
-** Description:             Clear DMA run flag to stop retransmission loop
-***************************************************************************************/
-extern "C" void dma_end_callback();
-
-void IRAM_ATTR dma_end_callback(spi_transaction_t *spi_tx)
-{
-  WRITE_PERI_REG(SPI_DMA_CONF_REG(spi_host), 0);
-}
-
-/***************************************************************************************
 ** Function name:           initDMA
 ** Description:             Initialise the DMA engine - returns true if init OK
 ***************************************************************************************/
@@ -815,11 +798,7 @@ bool TFT_eSPI::initDMA(bool ctrl_cs)
     .flags = SPI_DEVICE_NO_DUMMY, //0,
     .queue_size = 1,
     .pre_cb = 0, //dc_callback, //Callback to handle D/C line
-    #ifdef CONFIG_IDF_TARGET_ESP32
-      .post_cb = 0
-    #else
-      .post_cb = 0 //dma_end_callback
-    #endif
+    .post_cb = 0
   };
   ret = spi_bus_initialize(spi_host, &buscfg, DMA_CHANNEL);
   ESP_ERROR_CHECK(ret);

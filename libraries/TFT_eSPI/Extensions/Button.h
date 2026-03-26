@@ -6,8 +6,8 @@
 // within button
 ***************************************************************************************/
 
-class TFT_eSPI_Button
-{
+class TFT_eSPI_Button : public TFT_eSPI {
+
  public:
   TFT_eSPI_Button(void);
   // "Classic" initButton() uses centre & size

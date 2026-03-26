@@ -48,13 +48,13 @@ Software License Agreement (FreeBSD License)
 // >>>>>>>>>>>>>>>>>>>>             INSTRUCTIONS             <<<<<<<<<<<<<<<<<<<<
 
 // See comments below in code for specifying the font parameters (point size,
-// unicode blocks to include etc.). Ranges of characters (glyphs) and specific
+// unicode blocks to include etc). Ranges of characters (glyphs) and specific
 // individual glyphs can be included in the created "*.vlw" font file.
 
 // Created fonts are saved in the sketches "FontFiles" folder. Press Ctrl+K to
 // see that folder location.
 
-// 16-bit Unicode point codes in the range 0x0000 - 0xFFFF are supported.
+// 16 bit Unicode point codes in the range 0x0000 - 0xFFFF are supported.
 // Codes 0-31 are control codes such as "tab" and "carraige return" etc.
 // and 32 is a "space", these should NOT be included.
 
@@ -134,16 +134,10 @@ String fontType = ".ttf";
 
 
 // Define the font size in points for the TFT_eSPI font file
-int  fontSize = 28;
+int  fontSize = 10;
 
 // Font size to use in the Processing sketch display window that pops up (can be different to above)
-int displayFontSize = 28;
-
-// Create a C header (.h file) ready to be used or copied in your sketch folder
-boolean createHeaderFile = true;
-
-// Automaticely open the folder with created files when done
-boolean openFolder = true;
+int displayFontSize = 10;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Next we specify which unicode blocks from the the Basic Multilingual Plane (BMP) are included in the final font file. //
@@ -159,6 +153,7 @@ static final int[] unicodeBlocks = {
   // Block range,   //Block name, Code points, Assigned characters, Scripts
   // First, last,   //Range is inclusive of first and last codes
   0x0021, 0x007E, //Basic Latin, 128, 128, Latin (52 characters), Common (76 characters)
+ 
   //0x0080, 0x00FF, //Latin-1 Supplement, 128, 128, Latin (64 characters), Common (64 characters)
   //0x0100, 0x017F, //Latin Extended-A, 128, 128, Latin
   //0x0180, 0x024F, //Latin Extended-B, 208, 208, Latin
@@ -332,13 +327,18 @@ static final int[] specificUnicodes = {
   // Commonly used codes, add or remove // in next line
   // 0x00A3, 0x00B0, 0x00B5, 0x03A9, 0x20AC, // £ ° µ Ω €
 
-  // Numbers and characters for showing time, change next line to //* to use
-/*
+  // Numbers and characters for showing time, change next line to //* to u/se
+
     0x002B, 0x002D, 0x002E, 0x0030, 0x0031, 0x0032, 0x0033, 0x0034, // - + . 0 1 2 3 4
     0x0035, 0x0036, 0x0037, 0x0038, 0x0039, 0x003A, 0x0061, 0x006D, // 5 6 7 8 9 : a m
     0x0070,                                                         // p
- //*/
+ 
+  
+   0xc548, 0xb155,
+   0xd558, 0xc138,
+   0xc694,
 
+   0x4f60,0x597d
   // More characters for TFT_eSPI test sketches, change next line to //* to use
   /*
     0x0102, 0x0103, 0x0104, 0x0105, 0x0106, 0x0107, 0x010C, 0x010D,
@@ -369,7 +369,7 @@ static final int[] specificUnicodes = {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Variable to hold the inclusive Unicode range (16-bit values only for this sketch)
+// Variable to hold the inclusive Unicode range (16 bit values only for this sketch)
 int firstUnicode = 0;
 int lastUnicode  = 0;
 
@@ -398,7 +398,7 @@ void setup() {
   // Set the fontName from the array number or the defined fontName
   if (fontNumber >= 0)
   {
-//    fontName = fontList[fontNumber];
+    fontName = fontList[fontNumber];
     fontType = "";
   }
 
@@ -505,13 +505,11 @@ void setup() {
 
   println("Created font " + fontName + str(fontSize) + ".vlw");
 
-  String fontFileName = "FontFiles/" + fontName + str(fontSize) + ".vlw";
-
   // creating file
   try {
     print("Saving to sketch FontFiles folder... ");
 
-    OutputStream output = createOutput(fontFileName);
+    OutputStream output = createOutput("FontFiles/" + fontName + str(fontSize) + ".vlw");
     font.save(output);
     output.close();
 
@@ -521,50 +519,11 @@ void setup() {
 
     // Open up the FontFiles folder to access the saved file
     String path = sketchPath();
-    if(openFolder){
-      Desktop.getDesktop().open(new File(path+"/FontFiles"));
-    }
+    Desktop.getDesktop().open(new File(path+"/FontFiles"));
 
     System.err.println("All done! Note: Rectangles are displayed for non-existant characters.");
   }
   catch(IOException e) {
     println("Doh! Failed to create the file");
-  }
-
-  if(!createHeaderFile) return;
-  // Now creating header file if the option was specified.
-  try{
-    print("saving header file to FontFile folder...");
-
-    InputStream input = createInputRaw(fontFileName);
-    PrintWriter output = createWriter("FontFiles/" + fontName + str(fontSize) + ".h");
-
-    output.println("#include <pgmspace.h>");
-    output.println();
-    output.println("const uint8_t " + fontName + str(fontSize) + "[] PROGMEM = {");
-
-    int i = 0;
-    int data = input.read();
-    while(data != -1){
-      output.print("0x");
-      output.print(hex(data, 2));
-      if(i++ < 15){
-        output.print(", ");
-      } else {
-        output.println(",");
-        i = 0;
-      }
-      data = input.read();
-    }
-//    font.save(output);
-    output.println("\n};");
-
-    output.close();
-    input.close();
-
-    println("C header file created.");
-
-  } catch(IOException e){
-    println("Failed to create C header file");
   }
 }

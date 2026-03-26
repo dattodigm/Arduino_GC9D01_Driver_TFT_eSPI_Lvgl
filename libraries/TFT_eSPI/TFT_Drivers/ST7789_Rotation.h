@@ -132,6 +132,24 @@
         rowstart = 0;
       }
 #endif
+
+#ifdef CGRAM_OFFSET
+// 1.47" 172x320 Round Rectangle Color IPS TFT Display
+  #if (TFT_HEIGHT == 320) && (TFT_WIDTH == 172)
+    #ifndef CGRAM_OFFSET
+      #define CGRAM_OFFSET
+    #endif
+  #endif
+
+  #if (TFT_HEIGHT == 320) && (TFT_WIDTH == 170)
+    #ifndef CGRAM_OFFSET
+      #define CGRAM_OFFSET
+    #endif
+  #endif
+#endif
+
+
+
       writedata(TFT_MAD_MV | TFT_MAD_MY | TFT_MAD_COLOR_ORDER);
 
       _width  = _init_height;

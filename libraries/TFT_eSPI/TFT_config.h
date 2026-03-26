@@ -12,7 +12,7 @@
  * @author Ricard Bitriá Ribes (https://github.com/dracir9)
  * Created Date: 22-01-2022
  * -----
- * Last Modified: 25-02-2023
+ * Last Modified: 14-04-2022
  * Modified By: Ricard Bitriá Ribes
  * -----
  * @copyright (c) 2022 Ricard Bitriá Ribes
@@ -22,14 +22,6 @@
 #define TFT_CONFIG_H
 
 #include "sdkconfig.h"
-
-/***************************************************************************************
-**                         Others
-***************************************************************************************/
-
-#ifdef CONFIG_DISABLE_WARNINGS
-    #define DISABLE_ALL_LIBRARY_WARNINGS
-#endif
 
 /***************************************************************************************
 **                         TFT_eSPI Configuration defines
@@ -78,7 +70,7 @@
     #define SSD1963_800ALT_DRIVER
 #elif defined (CONFIG_TFT_ILI9225_DRIVER)
     #define ILI9225_DRIVER
-#elif defined (CONFIG_TFT_GC9A01_DRIVER)
+#elif defined (CONFIG_TFT_GC9D01_DRIVER)
     #define GC9A01_DRIVER
 #endif
 
@@ -145,9 +137,7 @@
 #endif
 
 #if CONFIG_TFT_RST == -1
-    #if !defined(DISABLE_ALL_LIBRARY_WARNINGS)
-        #warning "Invalid Reset pin. Check TFT_eSPI configuration"
-    #endif
+    #error "Invalid Reset pin. Check TFT_eSPI configuration"
 #else
     #define TFT_RST         CONFIG_TFT_RST
 #endif
@@ -170,8 +160,6 @@
 
 // 8 BIT PARALLEL BUS
 #ifdef CONFIG_TFT_PARALLEL_8_BIT
-
-    #define TFT_PARALLEL_8_BIT
 
     #if CONFIG_TFT_D0 == -1
         #error "Invalid Data 0 pin. Check TFT_eSPI configuration"
