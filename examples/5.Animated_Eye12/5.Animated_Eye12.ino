@@ -1,6 +1,12 @@
 #include <SPI.h>
 #include <TFT_eSPI.h>
-#include "EYEA.h"
+#include "tools/MyAnim.h"
+#if defined(ESP32)
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <ESPmDNS.h>
+#include <OSCMessage.h>
+#endif
 TFT_eSPI tft;           // A single instance is used for 1 or 2 displays
 
 #define device_A_CS  5
@@ -20,8 +26,8 @@ TFT_eSPI tft;           // A single instance is used for 1 or 2 displays
    #define DINOGREEN    0x2C86
    #define WHITE        0xFFFF
 
-   int frameTime = 70;
-   int j;
+int frameTime = 70;
+int j;
 // A pixel buffer is used during eye rendering
 #define BUFFER_SIZE 1024 // 128 to 1024 seems optimum
 
@@ -70,6 +76,202 @@ struct {                // One-per-eye structure
 
 uint32_t startTime;  // For FPS indicator
 
+const uint16_t* const kDemo2Frames[] = {
+  gImage_A1,  gImage_A2,  gImage_A3,  gImage_A4,  gImage_A5,
+  gImage_A6,  gImage_A7,  gImage_A8,  gImage_A9,  gImage_A10,
+  gImage_A11, gImage_A12, gImage_A13, gImage_A14, gImage_A15,
+  gImage_A16, gImage_A17, gImage_A18, gImage_A19, gImage_A20,
+  gImage_A21, gImage_A22, gImage_A23, gImage_A24, gImage_A25
+};
+const uint8_t kDemo2FrameCount = sizeof(kDemo2Frames) / sizeof(kDemo2Frames[0]);
+
+volatile bool g_trackEnabled = true;
+volatile bool g_trackHasData = false;
+volatile float g_trackNormX = 0.5f;
+volatile float g_trackNormY = 0.5f;
+volatile uint32_t g_lastTrackInputMs = 0;
+volatile uint8_t g_trackBlendPct = 78;
+const uint32_t kTrackHoldTimeoutMs = 1200;
+
+volatile uint8_t g_requestedDemo2Loops = 0;
+
+#if defined(ESP32)
+const char* STA_SSID = "F7OWER";
+const char* STA_PASSWORD = "12345678";
+const char* NODE_ID = "eye_anime_1";
+const char* NODE_TYPE = "eye_anime";
+const int OSC_PORT = 8888;
+const unsigned long WIFI_RETRY_INTERVAL_MS = 6000;
+
+WiFiUDP udp;
+bool mdnsStarted = false;
+unsigned long lastWifiRetryMs = 0;
+#endif
+
+bool isOscTrackingActive() {
+  if (!g_trackEnabled || !g_trackHasData) return false;
+  return (millis() - g_lastTrackInputMs) <= kTrackHoldTimeoutMs;
+}
+
+void getOscTrackingNorm(float &nx, float &ny, uint8_t &blendPct) {
+  nx = g_trackNormX;
+  ny = g_trackNormY;
+  blendPct = g_trackBlendPct;
+}
+
+#if defined(ESP32)
+float clampf(float value, float lo, float hi) {
+  if (value < lo) return lo;
+  if (value > hi) return hi;
+  return value;
+}
+
+bool connectWifiWithAttempts(int attempts, bool verbose) {
+  attempts = constrain(attempts, 1, 120);
+  WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(false);
+  WiFi.begin(STA_SSID, STA_PASSWORD);
+  if (verbose) Serial.print("[Net] Connecting");
+  for (int i = 0; i < attempts; i++) {
+    if (WiFi.status() == WL_CONNECTED) {
+      if (verbose) {
+        Serial.print("\n[Net] Connected, IP: ");
+        Serial.println(WiFi.localIP());
+      }
+      return true;
+    }
+    delay(500);
+    if (verbose) Serial.print(".");
+  }
+  if (verbose) Serial.println("\n[Net] WiFi connect failed");
+  return WiFi.status() == WL_CONNECTED;
+}
+
+void setupMDNS() {
+  if (mdnsStarted || WiFi.status() != WL_CONNECTED) return;
+  if (!MDNS.begin(NODE_ID)) {
+    Serial.println("[Net] mDNS failed");
+    return;
+  }
+  MDNS.addService("osc", "udp", OSC_PORT);
+  MDNS.addServiceTxt("osc", "udp", "node_type", NODE_TYPE);
+  MDNS.addServiceTxt("osc", "udp", "node_id", NODE_ID);
+  MDNS.addService("datt_flower", "tcp", OSC_PORT);
+  MDNS.addServiceTxt("datt_flower", "tcp", "node_type", NODE_TYPE);
+  MDNS.addServiceTxt("datt_flower", "tcp", "node_id", NODE_ID);
+  mdnsStarted = true;
+  Serial.printf("[Net] mDNS ready: %s.local\n", NODE_ID);
+}
+
+void ensureWifiConnected() {
+  if (WiFi.status() == WL_CONNECTED) return;
+  unsigned long now = millis();
+  if (now - lastWifiRetryMs < WIFI_RETRY_INTERVAL_MS) return;
+  lastWifiRetryMs = now;
+  connectWifiWithAttempts(8, false);
+}
+
+void ensureMDNS() {
+  if (!mdnsStarted && WiFi.status() == WL_CONNECTED) setupMDNS();
+}
+
+void routeTrackAuto(OSCMessage &msg, int addrOffset) {
+  if (msg.size() < 1) return;
+  g_trackEnabled = msg.getInt(0) != 0;
+}
+
+void routeTrackMode(OSCMessage &msg, int addrOffset) {
+  routeTrackAuto(msg, addrOffset);
+}
+
+void routeTrackNorm(OSCMessage &msg, int addrOffset) {
+  if (msg.size() < 2) return;
+  float nx = clampf(msg.getFloat(0), 0.0f, 1.0f);
+  float ny = clampf(msg.getFloat(1), 0.0f, 1.0f);
+  g_trackNormX = nx;
+  g_trackNormY = ny;
+  g_trackHasData = true;
+  g_lastTrackInputMs = millis();
+}
+
+void routeTrackXY(OSCMessage &msg, int addrOffset) {
+  if (msg.size() < 4) return;
+  int x = msg.getInt(0);
+  int y = msg.getInt(1);
+  int frameW = max(msg.getInt(2), 1);
+  int frameH = max(msg.getInt(3), 1);
+  float nx = clampf((float)x / (float)frameW, 0.0f, 1.0f);
+  float ny = clampf((float)y / (float)frameH, 0.0f, 1.0f);
+  g_trackNormX = nx;
+  g_trackNormY = ny;
+  g_trackHasData = true;
+  g_lastTrackInputMs = millis();
+}
+
+void routeTrackCenter(OSCMessage &msg, int addrOffset) {
+  g_trackNormX = 0.5f;
+  g_trackNormY = 0.5f;
+  g_trackHasData = true;
+  g_lastTrackInputMs = millis();
+}
+
+void routeEyeAnime(OSCMessage &msg, int addrOffset) {
+  int loops = 1;
+  if (msg.size() >= 2) loops = constrain(msg.getInt(1), 1, 20);
+  else if (msg.size() >= 1) loops = constrain(msg.getInt(0), 1, 20);
+  g_requestedDemo2Loops = (uint8_t)loops;
+}
+
+void routeInfoSelf(OSCMessage &msg, int addrOffset) {
+  IPAddress ip = WiFi.localIP();
+  OSCMessage reply("/info/self");
+  reply.add((char*)NODE_ID);
+  reply.add((char*)"esp32");
+  reply.add((char*)NODE_TYPE);
+  char ipbuf[20];
+  snprintf(ipbuf, sizeof(ipbuf), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+  reply.add((char*)ipbuf);
+  udp.beginPacket(udp.remoteIP(), udp.remotePort());
+  reply.send(udp);
+  udp.endPacket();
+  reply.empty();
+}
+
+void processOSC() {
+  int packetSize = udp.parsePacket();
+  if (!packetSize) return;
+  OSCMessage msg;
+  while (packetSize--) msg.fill(udp.read());
+  if (msg.hasError()) return;
+  msg.route("/track/auto", routeTrackAuto);
+  msg.route("/track/mode", routeTrackMode);
+  msg.route("/track/norm", routeTrackNorm);
+  msg.route("/track/xy", routeTrackXY);
+  msg.route("/track/center", routeTrackCenter);
+  msg.route("/eye/anime", routeEyeAnime);
+  msg.route("/anime/play", routeEyeAnime);
+  msg.route("/info/self", routeInfoSelf);
+}
+#endif
+
+void serviceBackground() {
+#if defined(ESP32)
+  ensureWifiConnected();
+  ensureMDNS();
+  processOSC();
+#endif
+}
+
+void delayWithService(uint32_t waitMs) {
+  uint32_t start = millis();
+  while ((millis() - start) < waitMs) {
+    serviceBackground();
+    delay(1);
+  }
+}
+
 void Demo_1()
 {
   updateEye();
@@ -77,104 +279,12 @@ void Demo_1()
 
 void Demo_2()
 {
-// ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160,160,gImage_A1);
-   digitalWrite (device_A_CS, HIGH); 
-  
-   delay (frameTime);
-// ============================================================================
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A2);
-   digitalWrite (device_A_CS, HIGH); 
-
-   delay (frameTime);
-
-
-// ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A3);
-   digitalWrite (device_A_CS, HIGH); 
-   
-   delay (frameTime);
-
-// ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A4);
-   digitalWrite (device_A_CS, HIGH); 
-
-   delay (frameTime);
-
-// ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A5);
-   digitalWrite (device_A_CS, HIGH); 
-
-   delay (frameTime);
-   
-
-// ============================================================================ 
-// // ============================================================================ 
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A6);
-   digitalWrite (device_A_CS, HIGH); 
-   
-   delay (frameTime);
-
-
-// // ============================================================================ 
-
-  digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A7);
-   digitalWrite (device_A_CS, HIGH); 
-  
-   
-   delay (frameTime);
-
-
-// // ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A8);
-   digitalWrite (device_A_CS, HIGH);  
-   delay (frameTime);
-
-
-// // ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A9);
-   digitalWrite (device_A_CS, HIGH); 
-   
-   
-   delay (frameTime);
-
-
-// // ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A10);
-   digitalWrite (device_A_CS, HIGH); 
-   
-   delay (frameTime);
-// // ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A11);
-   digitalWrite (device_A_CS, HIGH);  
-   delay (frameTime);
-// // ============================================================================ 
-
-   digitalWrite (device_A_CS, LOW);   
-   tft.pushImage (0, 0,160, 160,gImage_A12);
-   digitalWrite (device_A_CS, HIGH); 
-   delay (frameTime);
-// // ============================================================================ 
+  for (uint8_t idx = 0; idx < kDemo2FrameCount; idx++) {
+    digitalWrite(device_A_CS, LOW);
+    tft.pushImage(0, 0, 160, 160, kDemo2Frames[idx]);
+    digitalWrite(device_A_CS, HIGH);
+    delayWithService((uint32_t)frameTime);
+  }
 }
 
 // INITIALIZATION -- runs once at startup ----------------------------------
@@ -195,6 +305,12 @@ void setup(void) {
 
   // User call for additional features
   user_setup();
+
+#if defined(ESP32)
+  connectWifiWithAttempts(20, true);
+  udp.begin(OSC_PORT);
+  setupMDNS();
+#endif
 
   // Initialise the eye(s), this will set all chip selects low for the tft.init()
   initEyes();
@@ -231,19 +347,22 @@ void setup(void) {
 // MAIN LOOP -- runs continuously after setup() ----------------------------
 char i=0;
 void loop() {
-  // Demo_1();
-  for(int a=1;a<=2;a++){
-    if(a==1){                                    
-    tft.fillScreen (BLACK);
-    Demo_1();
-    delay(2000);
-    }
-
-    else if(a==2){
-      for(i=0;i<7;i++){
+  for (int a = 1; a <= 2; a++) {
+    if (a == 1) {
+      tft.fillScreen(BLACK);
+      uint32_t demo1Start = millis();
+      while ((millis() - demo1Start) < 2000) {
+        serviceBackground();
+        Demo_1();
+      }
+    } else if (a == 2) {
+      uint8_t loops = g_requestedDemo2Loops ? g_requestedDemo2Loops : 7;
+      g_requestedDemo2Loops = 0;
+      for (i = 0; i < loops; i++) {
+        serviceBackground();
         Demo_2();
       }
     }
   }
-  
+  serviceBackground();
 }

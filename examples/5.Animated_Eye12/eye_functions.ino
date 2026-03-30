@@ -29,6 +29,9 @@
 uint16_t oldIris = (IRIS_MIN + IRIS_MAX) / 2, newIris;
 #endif
 
+extern bool isOscTrackingActive();
+extern void getOscTrackingNorm(float &nx, float &ny, uint8_t &blendPct);
+
 // Initialise eyes ---------------------------------------------------------
 void initEyes(void)
 {
@@ -273,6 +276,25 @@ void frame(uint16_t iScale) // Iris scale (0-1023)
     }
   }
 #endif // JOYSTICK_X_PIN etc.
+
+  // Blend OSC tracking with procedural motion so random behavior remains visible.
+  if (isOscTrackingActive()) {
+    float nx = 0.5f, ny = 0.5f;
+    uint8_t blendPct = 78;
+    getOscTrackingNorm(nx, ny, blendPct);
+    blendPct = constrain(blendPct, 0, 100);
+
+    int16_t trackEyeX = constrain((int16_t)round(nx * 1023.0f), 0, 1023);
+    int16_t trackEyeY = constrain((int16_t)round(ny * 1023.0f), 0, 1023);
+
+    int16_t jitterX = random(-10, 11);
+    int16_t jitterY = random(-10, 11);
+    trackEyeX = constrain(trackEyeX + jitterX, 0, 1023);
+    trackEyeY = constrain(trackEyeY + jitterY, 0, 1023);
+
+    eyeX = ((eyeX * (100 - blendPct)) + (trackEyeX * blendPct)) / 100;
+    eyeY = ((eyeY * (100 - blendPct)) + (trackEyeY * blendPct)) / 100;
+  }
 
   // Blinking
 #ifdef AUTOBLINK
